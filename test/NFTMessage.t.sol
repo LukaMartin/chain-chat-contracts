@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
-import {NFTMessage} from "../../src/NFTMessage.sol";
+import {NFTMessage} from "../src/NFTMessage.sol";
 import {BaseTest} from "./BaseTest.t.sol";
 import {IERC721A} from "erc721a/contracts/interfaces/IERC721A.sol";
 
@@ -177,6 +177,26 @@ contract NFTMessageTest is BaseTest {
         assertEq(sender, Alice);
         assertEq(recipient, Bob);
         assertEq(timestamp, block.timestamp);
+    }
+
+    function test_isBlocked() public {
+        // Send new message
+        vm.prank(Alice);
+        uint256 tokenId = nftMessage.sendMessage(Bob, "Hello, Bob!");
+
+        // Assertions
+        vm.prank(Bob);
+        bool isBlockedOne = nftMessage.blocked(Bob, Alice);
+        assertEq(isBlockedOne, false);
+
+        // Block Alice
+        vm.prank(Bob);
+        nftMessage.blockUser(tokenId);
+
+        // Assertions
+        vm.prank(Bob);
+        bool isBlockedTwo = nftMessage.blocked(Bob, Alice);
+        assertEq(isBlockedTwo, true);
     }
 
     function test_fail_sendMessage_invalidRecipient() public {
