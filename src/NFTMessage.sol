@@ -282,7 +282,7 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
                 '<text x="250" y="380" class="address" font-size="18">From: ',
                 truncateAddress(message.sender),
                 "</text>",
-                '<text x="250" y="440" class="url" font-size="16">Reply on chainchat.xyz</text>',
+                '<text x="250" y="440" class="url" font-size="16">Reply on chainchat.fun</text>',
                 "</svg>"
             )
         );
