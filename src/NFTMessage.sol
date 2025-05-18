@@ -223,6 +223,16 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
         );
     }
 
+    /**
+     * @notice Check if an address is blocked
+     * @param user The address to check
+     * @return True if the address is blocked, false otherwise
+     *
+     */
+    function isBlocked(address user) external view returns (bool) {
+        return blocked[msg.sender][user];
+    }
+
     // ========== INTERNAL FUNCTIONS ==========
 
     /**
