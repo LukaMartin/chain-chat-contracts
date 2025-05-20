@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.26;
 
-import {ERC721A} from "erc721a/contracts/ERC721A.sol";
-import {IERC721A} from "erc721a/contracts/interfaces/IERC721A.sol";
-import {ERC721ABurnable} from "erc721a/contracts/extensions/ERC721ABurnable.sol";
+import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {ERC721Burnable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
+contract ChainChatMessage is ERC721, ERC721Burnable, Ownable, ReentrancyGuard {
     using Strings for uint256;
     using Strings for address;
 
@@ -28,17 +28,17 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
     // ========== STRUCTS ==========
 
     struct Message {
-        string content;
         address sender;
         address recipient;
-        uint256 timestamp;
+        uint96 timestamp;
+        string content;
     }
 
     // ========== STATE VARIABLES ==========
 
-    bool private _isMessageOperation;
-    uint256 public MAX_MESSAGE_LENGTH = 280;
-    uint256 public BATCH_BURN_LIMIT = 10;
+    uint256 public maxMessageLength = 280;
+    uint256 public batchBurnLimit = 10;
+    uint256 public nextTokenId = 1;
 
     // ========== MAPPINGS ==========
 
@@ -61,7 +61,7 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
 
     // ========== CONSTRUCTOR ==========
 
-    constructor(string memory name, string memory symbol) ERC721A(name, symbol) Ownable(msg.sender) ReentrancyGuard() {}
+    constructor(string memory name, string memory symbol) ERC721(name, symbol) Ownable(msg.sender) ReentrancyGuard() {}
 
     // ========== PUBLIC FUNCTIONS ==========
 
@@ -75,14 +75,15 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
     function sendMessage(address to, string calldata content) external returns (uint256) {
         if (to == address(0)) revert InvalidRecipient();
         if (blocked[to][msg.sender]) revert BlockedByRecipient();
-        if (bytes(content).length > MAX_MESSAGE_LENGTH) revert MessageTooLong();
+        if (bytes(content).length > maxMessageLength) revert MessageTooLong();
 
-        _isMessageOperation = true;
-        uint256 tokenId = _nextTokenId();
-        _mint(to, 1);
-        _isMessageOperation = false;
+        uint256 tokenId = nextTokenId;
+        nextTokenId++;
 
-        messages[tokenId] = Message({content: content, sender: msg.sender, recipient: to, timestamp: block.timestamp});
+        messages[tokenId] =
+            Message({sender: msg.sender, recipient: to, timestamp: uint96(block.timestamp), content: content});
+
+        _mint(to, tokenId);
 
         emit MessageSent(tokenId, msg.sender, to, content, block.timestamp);
         return tokenId;
@@ -95,21 +96,20 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
      *
      */
     function reply(uint256 tokenId, string calldata content) external nonReentrant {
-        if (bytes(content).length > MAX_MESSAGE_LENGTH) revert MessageTooLong();
+        if (bytes(content).length > maxMessageLength) revert MessageTooLong();
 
         Message storage message = messages[tokenId];
         if (blocked[message.sender][msg.sender]) revert BlockedByRecipient();
         if (ownerOf(tokenId) != msg.sender) revert NotMessageOwner();
 
         address previousSender = message.sender;
-        _isMessageOperation = true;
-        safeTransferFrom(msg.sender, previousSender, tokenId);
-        _isMessageOperation = false;
 
-        message.content = content;
         message.sender = msg.sender;
         message.recipient = previousSender;
-        message.timestamp = block.timestamp;
+        message.timestamp = uint96(block.timestamp);
+        message.content = content;
+
+        _safeTransfer(msg.sender, previousSender, tokenId);
 
         emit MessageReplied(tokenId, msg.sender, previousSender, content, block.timestamp);
     }
@@ -155,12 +155,12 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
      */
     function burnMessage(uint256 tokenId) external {
         if (ownerOf(tokenId) != msg.sender) revert NotMessageOwner();
-        _burn(tokenId);
+        _burnToken(tokenId);
         emit MessageBurned(tokenId);
     }
 
     function batchBurnMessages(uint256[] calldata tokenIds) external {
-        if (tokenIds.length > BATCH_BURN_LIMIT) revert BatchBurnLimitExceeded();
+        if (tokenIds.length > batchBurnLimit) revert BatchBurnLimitExceeded();
         for (uint256 i = 0; i < tokenIds.length; i++) {
             if (ownerOf(tokenIds[i]) != msg.sender) revert NotMessageOwner();
             _burn(tokenIds[i]);
@@ -176,7 +176,7 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
      *
      */
     function setMaxMessageLength(uint256 newLength) external onlyOwner {
-        MAX_MESSAGE_LENGTH = newLength;
+        maxMessageLength = newLength;
     }
 
     /**
@@ -185,7 +185,7 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
      *
      */
     function setBatchBurnLimit(uint256 newLimit) external onlyOwner {
-        BATCH_BURN_LIMIT = newLimit;
+        batchBurnLimit = newLimit;
     }
 
     // ========== VIEW FUNCTIONS ==========
@@ -196,7 +196,7 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
      *
      */
     function getMaxMessageLength() external view returns (uint256) {
-        return MAX_MESSAGE_LENGTH;
+        return maxMessageLength;
     }
 
     /**
@@ -205,7 +205,7 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
      *
      */
     function getBatchBurnLimit() external view returns (uint256) {
-        return BATCH_BURN_LIMIT;
+        return batchBurnLimit;
     }
 
     /**
@@ -214,12 +214,12 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
      * @return The message content, sender, recipient, and timestamp
      *
      */
-    function getMessage(uint256 tokenId) external view returns (string memory, address, address, uint256) {
+    function getMessage(uint256 tokenId) external view returns (address, address, uint96, string memory) {
         return (
-            messages[tokenId].content,
             messages[tokenId].sender,
             messages[tokenId].recipient,
-            messages[tokenId].timestamp
+            messages[tokenId].timestamp,
+            messages[tokenId].content
         );
     }
 
@@ -236,22 +236,12 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
     // ========== INTERNAL FUNCTIONS ==========
 
     /**
-     * @notice Burn a message
-     * @param tokenId The token ID of the message to burn
-     *
-     */
-    function _burn(uint256 tokenId) internal virtual override {
-        super._burn(tokenId);
-        delete messages[tokenId];
-    }
-
-    /**
      * @notice Generate the SVG for a message
      * @param message The message to generate the SVG for
      * @return The SVG
      *
      */
-    function generateSVG(Message memory message) internal pure returns (string memory) {
+    function _generateSVG(Message memory message) internal pure returns (string memory) {
         return string(
             abi.encodePacked(
                 '<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500">',
@@ -268,9 +258,14 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
                 ".url { font-family: Inter, sans-serif; fill: #4a4a4a; text-anchor: middle; }",
                 "</style>",
                 "</defs>",
-                '<rect width="500" height="500" rx="40" class="card"/>',
-                '<g transform="translate(50, 60)">',
-                '<text x="200" y="20" class="heading" font-size="32">New Message</text>',
+                '<rect width="500" height="500" rx="0" class="card"/>',
+                '<g transform="translate(50, 40)">',
+                '<g transform="translate(70, -6) scale(0.04)">',
+                '<path d="M406 0H438L468 2L496 5L525 10L550 16L581 25L608 35L635 47L660 60L680 72L695 82L707 91L723 104L734 114L742 121L762 141L771 152L785 170L798 190L808 207L816 223L826 246L835 274L841 301L844 324L845 342V362L843 387L839 411L832 438L823 463L811 489L799 511L785 532L775 545L766 556L757 566L746 578L730 594L719 603L710 612L699 621L687 632L665 650L652 661L638 672L624 684L613 693L600 704L589 713L576 724L566 732L553 743L543 751L532 760L519 771L505 783L494 793L480 804L471 808L468 809H453L443 805L435 799L428 788L425 779L424 719L421 712L416 707L408 703L395 701L361 699L331 695L305 690L275 682L243 671L213 658L188 645L165 631L145 617L131 606L117 594L109 587L84 562L75 551L68 543L54 524L37 496L24 470L15 446L7 419L2 392L0 371V329L3 303L8 278L17 249L27 225L37 205L49 185L60 169L74 151L83 141L90 133L111 112L119 105L136 91L153 79L172 67L193 55L208 47L240 33L268 23L294 15L327 8L354 4L385 1L406 0Z" fill="#E3F31B"/>',
+                '<path d="M455 196H584L604 199L624 205L645 215L660 225L673 236L686 249L697 264L707 281L715 301L720 321L722 336V362L719 382L713 403L702 426L690 443L678 456L670 464L654 476L636 486L621 492L601 497L588 499H472L455 496L435 490L419 482L405 473L392 462L382 452L372 439L363 424L355 407L349 388L346 373L345 364V337L348 318L353 303L359 292L363 289L372 290L384 296L394 305L400 312L406 324L407 328L408 364L411 379L417 394L425 406L434 416L444 424L459 432L472 436L490 438H564L584 437L601 433L618 425L630 416L640 406L650 391L656 377L659 364L660 357V340L657 324L651 308L643 295L632 283L623 275L610 267L594 261L585 259L576 258L502 257L485 232L474 219L454 199L455 196Z" fill="black"/>',
+                '<path d="M262 196H371L388 199L409 206L428 216L439 224L449 233L461 245L473 262L483 280L490 298L495 318L497 337V350L495 369L491 385L483 401L479 404H472L460 399L450 391L442 382L437 372L435 361V336L433 321L429 309L423 297L413 284L402 274L387 265L372 260L358 258H269L250 261L234 267L224 273L214 281L203 292L194 306L188 320L185 332L184 339V358L187 373L193 389L202 403L211 413L220 421L233 429L249 435L259 437L272 438L339 439L346 448L358 465L370 479L382 491L388 496V499L386 500L255 499L233 495L217 490L199 482L185 473L175 465L165 456L155 445L144 429L134 410L128 393L124 377L122 361V335L125 315L131 294L142 271L150 259L161 245L173 233L189 221L204 212L223 204L241 199L262 196Z" fill="black"/>',
+                "</g>",
+                '<text x="220" y="20" class="heading" font-size="32">New Message</text>',
                 "</g>",
                 '<foreignObject x="50" y="140" width="400" height="200">',
                 '<div xmlns="http://www.w3.org/1999/xhtml" style="width: 100%; height: 100%;">',
@@ -280,7 +275,7 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
                 '"',
                 "</p></div></foreignObject>",
                 '<text x="250" y="380" class="address" font-size="18">From: ',
-                truncateAddress(message.sender),
+                _truncateAddress(message.sender),
                 "</text>",
                 '<text x="250" y="440" class="url" font-size="16">Reply on chainchat.fun</text>',
                 "</svg>"
@@ -294,13 +289,13 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
      * @return The truncated address
      *
      */
-    function truncateAddress(address addr) internal pure returns (string memory) {
-        string memory full = addressToString(addr);
+    function _truncateAddress(address addr) internal pure returns (string memory) {
+        string memory full = addr.toChecksumHexString();
         return string(
             abi.encodePacked(
-                substring(full, 0, 8), // 0x + first 6 chars
+                _substring(full, 0, 8), // 0x + first 6 chars
                 "...",
-                substring(full, 38, 42) // last 4 chars
+                _substring(full, 38, 42) // last 4 chars
             )
         );
     }
@@ -313,7 +308,11 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
      * @return The substring
      *
      */
-    function substring(string memory str, uint256 startIndex, uint256 endIndex) internal pure returns (string memory) {
+    function _substring(string memory str, uint256 startIndex, uint256 endIndex)
+        internal
+        pure
+        returns (string memory)
+    {
         bytes memory strBytes = bytes(str);
         bytes memory result = new bytes(endIndex - startIndex);
         for (uint256 i = startIndex; i < endIndex; i++) {
@@ -322,91 +321,20 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
         return string(result);
     }
 
-    /**
-     * @notice Convert an address to a string
-     * @param addr The address to convert
-     * @return The string representation of the address
-     *
-     */
-    function addressToString(address addr) internal pure returns (string memory) {
-        return string(abi.encodePacked("0x", toAsciiString(addr)));
-    }
-
-    /**
-     * @notice Convert an address to an ASCII string
-     * @param x The address to convert
-     * @return The ASCII string representation of the address
-     *
-     */
-    function toAsciiString(address x) internal pure returns (string memory) {
-        bytes memory s = new bytes(40);
-        for (uint256 i = 0; i < 20; i++) {
-            bytes1 b = bytes1(uint8(uint256(uint160(x)) / (2 ** (8 * (19 - i)))));
-            bytes1 hi = bytes1(uint8(b) / 16);
-            bytes1 lo = bytes1(uint8(b) - 16 * uint8(hi));
-            s[2 * i] = char(hi);
-            s[2 * i + 1] = char(lo);
-        }
-        return string(s);
-    }
-
-    /**
-     * @notice Convert a bytes1 to a character
-     * @param b The bytes1 to convert
-     * @return c The character
-     */
-    function char(bytes1 b) internal pure returns (bytes1 c) {
-        if (uint8(b) < 10) return bytes1(uint8(b) + 0x30);
-        else return bytes1(uint8(b) + 0x57);
-    }
-
     // ========== OVERRIDES ==========
 
-    /**
-     * @notice Transfer a message
-     * @param from The address of the sender
-     * @param to The address of the recipient
-     * @param tokenId The token ID of the message to transfer
-     *
-     */
-    function transferFrom(address from, address to, uint256 tokenId) public payable override(ERC721A, IERC721A) {
-        if (!_isMessageOperation && to != address(0)) {
-            revert Locked();
-        }
-        super.transferFrom(from, to, tokenId);
+    function transferFrom(address, address, uint256) public virtual override {
+        revert Locked();
     }
 
     /**
-     * @notice Safe transfer a message
-     * @param from The address of the sender
-     * @param to The address of the recipient
-     * @param tokenId The token ID of the message to transfer
+     * @notice Burn a message
+     * @param tokenId The token ID of the message to burn
      *
      */
-    function safeTransferFrom(address from, address to, uint256 tokenId) public payable override(ERC721A, IERC721A) {
-        if (!_isMessageOperation && to != address(0)) {
-            revert Locked();
-        }
-        super.safeTransferFrom(from, to, tokenId);
-    }
-
-    /**
-     * @notice Safe transfer a message
-     * @param from The address of the sender
-     * @param to The address of the recipient
-     * @param tokenId The token ID of the message to transfer
-     * @param data The data to pass to the recipient
-     *
-     */
-    function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data)
-        public
-        payable
-        override(ERC721A, IERC721A)
-    {
-        if (!_isMessageOperation && to != address(0)) {
-            revert Locked();
-        }
-        super.safeTransferFrom(from, to, tokenId, data);
+    function _burnToken(uint256 tokenId) internal {
+        super._burn(tokenId);
+        delete messages[tokenId];
     }
 
     /**
@@ -415,12 +343,12 @@ contract NFTMessage is ERC721A, ERC721ABurnable, Ownable, ReentrancyGuard {
      * @return The token URI
      *
      */
-    function tokenURI(uint256 tokenId) public view override(ERC721A, IERC721A) returns (string memory) {
+    function tokenURI(uint256 tokenId) public view override(ERC721) returns (string memory) {
         address owner = ownerOf(tokenId);
         if (owner == address(0)) revert MessageDoesNotExist();
 
         Message memory message = messages[tokenId];
-        string memory svg = generateSVG(message);
+        string memory svg = _generateSVG(message);
 
         return string(
             abi.encodePacked(

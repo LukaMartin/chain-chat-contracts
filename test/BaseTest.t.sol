@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
-import {NFTMessage} from "../src/NFTMessage.sol";
+import {ChainChatMessage} from "../src/ChainChatMessage.sol";
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 
 contract BaseTest is Test {
     // NFT Message contract
-    NFTMessage nftMessage;
+    ChainChatMessage chainChatMessage;
 
     // User addresses
     address Alice;
@@ -32,9 +32,9 @@ contract BaseTest is Test {
         // Create users
         _createUsers();
 
-        // Deploy NFT Message contract
+        // Deploy Chain Chat Message contract
         vm.prank(Deployer);
-        nftMessage = new NFTMessage("NFT Messages", "MSG");
+        chainChatMessage = new ChainChatMessage("ChainChat Message", "MSG");
     }
 
     function _createUsers() internal virtual {
